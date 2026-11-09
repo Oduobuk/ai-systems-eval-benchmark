@@ -17,3 +17,4 @@ __all__ = [
     "BenchmarkRunner",
     "generate_markdown_report",
 ]
+

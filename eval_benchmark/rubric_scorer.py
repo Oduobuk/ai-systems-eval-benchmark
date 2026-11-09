@@ -144,3 +144,4 @@ class RubricScorer:
             critique_lines.append("\nClean evaluation: No critical hardware or mathematical traps detected.")
 
         return "\n".join(critique_lines)
+

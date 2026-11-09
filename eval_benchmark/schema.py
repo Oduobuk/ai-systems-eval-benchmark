@@ -63,3 +63,4 @@ class EvaluationResult(BaseModel):
     detected_traps: List[str]
     evaluator_critique: str
     passed: bool
+

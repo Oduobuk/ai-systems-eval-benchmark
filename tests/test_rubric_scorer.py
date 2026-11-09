@@ -38,3 +38,4 @@ def test_scorer_rewards_senior_gqa_reasoning():
     assert res.passed
     assert res.score.mathematical_correctness >= 4.5
     assert len(res.detected_traps) == 0
+

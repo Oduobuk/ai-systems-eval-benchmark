@@ -61,3 +61,4 @@ def generate_markdown_report(
         lines.append("```\n")
 
     return "\n".join(lines)
+

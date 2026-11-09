@@ -22,3 +22,4 @@ def test_scenarios_json_validity():
         assert sc.category in ScenarioCategory
         assert len(sc.key_traps) > 0
         assert len(sc.golden_reference) > 50
+
