@@ -1,4 +1,8 @@
+import os
+import sys
 import pytest
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from eval_benchmark.schema import ModelResponse
 from eval_benchmark.runner import BenchmarkRunner
 

@@ -1,6 +1,34 @@
 from enum import Enum
-from typing import List, Dict, Optional
-from pydantic import BaseModel, Field
+from typing import List, Dict, Optional, Any
+
+try:
+    from pydantic import BaseModel, Field
+except ImportError:
+    class _FieldInfo:
+        def __init__(self, default=None, default_factory=None, **kwargs):
+            self.default = default
+            self.default_factory = default_factory
+
+        def get_value(self):
+            if self.default_factory is not None:
+                return self.default_factory()
+            return self.default
+
+    def Field(default=None, default_factory=None, **kwargs):
+        return _FieldInfo(default=default, default_factory=default_factory, **kwargs)
+
+    class BaseModel:
+        def __init__(self, **kwargs):
+            for k, v in self.__class__.__dict__.items():
+                if isinstance(v, _FieldInfo):
+                    setattr(self, k, v.get_value())
+                elif not k.startswith("_") and not callable(v) and not isinstance(v, (property, classmethod)):
+                    setattr(self, k, v)
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+
+        def dict(self):
+            return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
 
 
 class ScenarioCategory(str, Enum):
