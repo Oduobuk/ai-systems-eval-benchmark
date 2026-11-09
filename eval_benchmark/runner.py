@@ -59,7 +59,8 @@ class BenchmarkRunner:
             # Category scores
             cat_scores: Dict[str, List[float]] = {}
             for r in model_results:
-                cat_scores.setdefault(r.category.value, []).append(r.score.percentage)
+                cat_name = r.category.value if hasattr(r.category, "value") else str(r.category)
+                cat_scores.setdefault(cat_name, []).append(r.score.percentage)
 
             cat_avg = {k: sum(v)/len(v) for k, v in cat_scores.items()}
 

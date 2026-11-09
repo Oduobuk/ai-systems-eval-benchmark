@@ -74,7 +74,8 @@ def generate_markdown_report(
         status_icon = "✅ PASS" if res.passed else "❌ FAIL"
         lines.append(f"### {res.scenario_title} (`{res.scenario_id}`)")
         lines.append(f"**Model:** `{res.model_name}` | **Verdict:** {status_icon} | **Score:** {res.score.composite_score:.2f} / 5.0 ({res.score.percentage:.1f}%)")
-        lines.append(f"**Category:** `{res.category.value}`\n")
+        cat_name = res.category.value if hasattr(res.category, "value") else str(res.category)
+        lines.append(f"**Category:** `{cat_name}`\n")
         lines.append("```")
         lines.append(res.evaluator_critique)
         lines.append("```\n")

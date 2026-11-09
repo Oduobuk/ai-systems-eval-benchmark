@@ -54,6 +54,14 @@ class Scenario(BaseModel):
         "depth_of_explanation": 5
     })
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if hasattr(self, "category") and isinstance(self.category, str):
+            try:
+                self.category = ScenarioCategory(self.category)
+            except ValueError:
+                pass
+
 
 class ModelResponse(BaseModel):
     model_name: str
@@ -91,4 +99,12 @@ class EvaluationResult(BaseModel):
     detected_traps: List[str]
     evaluator_critique: str
     passed: bool
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if hasattr(self, "category") and isinstance(self.category, str):
+            try:
+                self.category = ScenarioCategory(self.category)
+            except ValueError:
+                pass
 
