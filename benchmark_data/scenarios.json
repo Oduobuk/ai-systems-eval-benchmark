@@ -1,0 +1,116 @@
+[
+  {
+    "id": "cuda_fused_softmax_coalescing",
+    "title": "CUDA Fused Row-wise Softmax Memory Coalescing",
+    "category": "CUDA_KERNEL",
+    "difficulty": "HARD",
+    "prompt": "Write an optimized custom CUDA kernel to compute row-wise Softmax over a 2D tensor [M=4096, N=1024]. A junior engineer proposes mapping 1 thread per row ('int row = blockIdx.x * blockDim.x + threadIdx.x') to eliminate thread synchronization. Evaluate this proposal for hardware efficiency and provide an optimized reference kernel.",
+    "key_traps": [
+      "Failing to identify uncoalesced global memory access (4KB strides between threads in a warp, 3.1% bus efficiency).",
+      "Missing redundant DRAM reads (reading global memory 3 times for max, sum, and norm).",
+      "Recommending atomic operations instead of warp shuffle primitives (__shfl_down_sync)."
+    ],
+    "golden_reference": "Mapping 1 thread per row destroys global memory coalescing on NVIDIA GPUs. Consecutive threads in a warp access addresses separated by stride N=1024 floats (4096 bytes), requiring 32 independent 128-byte transactions per warp and dropping effective memory bandwidth to 3.1% (4/128). An optimized kernel must assign 1 Block (or 1 Warp) per row so threadIdx.x strides by 1 across contiguous columns, caching intermediate rows in Shared Memory/Registers and performing reductions via __shfl_down_sync.",
+    "rubric": {
+      "mathematical_correctness": 5,
+      "hardware_efficiency": 5,
+      "architectural_safety": 5,
+      "depth_of_explanation": 5
+    }
+  },
+  {
+    "id": "vllm_llama3_70b_gqa_sizing",
+    "title": "Llama-3-70B GQA KV-Cache Memory Sizing Under TP=8",
+    "category": "INFERENCE_SERVING",
+    "difficulty": "EXPERT",
+    "prompt": "Calculate the exact per-GPU KV-cache memory requirement for Llama-3-70B (80 layers, hidden dim 8192, 64 Q-heads, 8 KV-heads, S=8192, BF16) running on 8x NVIDIA H100 (80GB) under vLLM with Tensor Parallelism (TP=8) at concurrent batch size B=64. Will this batch size trigger an OOM?",
+    "key_traps": [
+      "Using total query heads (64) instead of GQA KV heads (8), inflating the KV cache by 8x (~1.37 TB vs ~171.8 GB).",
+      "Incorrectly dividing heads across TP ranks (failing to recognize each of the 8 GPUs receives exactly 1 KV head).",
+      "Falsely concluding that B=64 triggers an Out-Of-Memory (OOM) error."
+    ],
+    "golden_reference": "Head dimension is d_k = 8192 / 64 = 128. With Grouped-Query Attention (GQA), there are only 8 KV heads, so KV dimension per token is 8 * 128 = 1024 (both for K and V). Bytes per token across all 80 layers = 2 (K,V) * 80 * 1024 * 2 bytes (BF16) = 327,680 bytes/token. Total KV cache for B=64, S=8192 = 64 * 8192 * 327,680 = 171.8 GB (160 GiB). Sharding across TP=8 assigns exactly 1 KV head per GPU, requiring 160 / 8 = 20.0 GiB (21.47 GB) per GPU. Model weights require 140 GB / 8 = 17.5 GB. Total per-GPU allocation is ~39 GB, which easily fits within the 80GB H100 memory without triggering an OOM.",
+    "rubric": {
+      "mathematical_correctness": 5,
+      "hardware_efficiency": 5,
+      "architectural_safety": 5,
+      "depth_of_explanation": 5
+    }
+  },
+  {
+    "id": "quantization_w4a16_roofline_prefill",
+    "title": "W4A16 Quantization Roofline Analysis (Prefill vs. Decode)",
+    "category": "QUANTIZATION",
+    "difficulty": "HARD",
+    "prompt": "An engineer claims that applying W4A16 (4-bit weight, 16-bit activation) quantization to a foundation model will double execution throughput during the Prefill (prompt processing) phase on NVIDIA Tensor Cores. Evaluate this claim from the perspective of the Roofline Model.",
+    "key_traps": [
+      "Agreeing with the claim without checking arithmetic intensity.",
+      "Failing to note that NVIDIA Tensor Cores do not execute native mixed INT4/FP16 matrix multiplications.",
+      "Confusing memory-bandwidth bound decode with compute-bound prefill."
+    ],
+    "golden_reference": "The claim is false. The Prefill phase consists of large-batch matrix-matrix multiplications (GEMMs) operating in the compute-bound plateau of the Roofline model. Furthermore, NVIDIA Hopper/Ampere Tensor Cores do not natively execute mixed INT4-weight / FP16-activation math; the kernel must dynamically load 4-bit weights from memory, dequantize them to FP16 in registers/SRAM, and then feed them into FP16 Tensor Cores. This adds instruction overhead without increasing peak compute TFLOP/s. W4A16 accelerates the memory-bandwidth bound Decode phase (GEMV), not prefill.",
+    "rubric": {
+      "mathematical_correctness": 5,
+      "hardware_efficiency": 5,
+      "architectural_safety": 5,
+      "depth_of_explanation": 5
+    }
+  },
+  {
+    "id": "optimizer_adamw_16byte_footprint",
+    "title": "Mixed-Precision AdamW Optimizer Memory Accounting",
+    "category": "OPTIMIZER_DESIGN",
+    "difficulty": "HARD",
+    "prompt": "An engineer is fine-tuning an 8B parameter model in BF16 on a 40GB A100. Weights take 16 GB and gradients take 16 GB. The engineer assumes the remaining 8 GB is plenty for AdamW and suspects an OOM is due to a PyTorch DataLoader leak. Diagnose the true memory requirements and provide reference fixes.",
+    "key_traps": [
+      "Forgetting the FP32 master weights required for numerical stability (4 bytes/param).",
+      "Assuming AdamW momentum buffers are stored in 16-bit instead of 32-bit floats (4 bytes + 4 bytes).",
+      "Failing to calculate the total static memory of 16 bytes per parameter (128 GB total for 8B params)."
+    ],
+    "golden_reference": "The diagnosis is completely wrong. In mixed-precision training, AdamW maintains: (1) BF16 weights [2B], (2) BF16 gradients [2B], (3) FP32 master weights [4B], (4) FP32 1st momentum m_t [4B], and (5) FP32 2nd variance v_t [4B]. Total static footprint is 16 bytes per parameter. For an 8B parameter model, static memory is 8 * 10^9 * 16 bytes = 128 GB, which triggers an immediate OOM on a 40GB GPU. Canonical solutions: (1) 8-bit Adam (bitsandbytes) compressing momentum states to 2-4 bytes/param, (2) LoRA/PEFT freezing base weights, or (3) ZeRO-1/FSDP optimizer partitioning across multiple GPUs.",
+    "rubric": {
+      "mathematical_correctness": 5,
+      "hardware_efficiency": 5,
+      "architectural_safety": 5,
+      "depth_of_explanation": 5
+    }
+  },
+  {
+    "id": "sglang_radix_attention_prefix_caching",
+    "title": "SGLang RadixAttention vs. Standard Prefix Caching",
+    "category": "INFERENCE_SERVING",
+    "difficulty": "HARD",
+    "prompt": "Compare how SGLang's RadixAttention handles multi-turn chat prefix reuse compared to vLLM's standard block-hash prefix caching. Explain how LRU eviction and tree-structured memory affect Time-To-First-Token (TTFT).",
+    "key_traps": [
+      "Assuming vLLM caches arbitrary token prefixes without full block alignment.",
+      "Failing to explain the Radix Tree data structure for maintaining prefix hierarchies.",
+      "Misunderstanding how copy-on-write branching operates when multiple turns diverge."
+    ],
+    "golden_reference": "Standard vLLM prefix caching hashes complete physical blocks (typically 16 tokens). Any prefix that is not block-aligned or that diverges mid-block cannot reuse cached tokens easily. SGLang introduces RadixAttention, which organizes the KV cache as a Radix Tree (trie) in CPU/GPU memory where edges represent token sequences and nodes represent cache tensors. When a multi-turn chat or tool prompt arrives, RadixAttention performs an O(1) prefix match on the radix tree, matching prefixes of arbitrary length and skipping prefill compute. When memory is constrained, it applies LRU tree eviction to discard leaf nodes first.",
+    "rubric": {
+      "mathematical_correctness": 5,
+      "hardware_efficiency": 5,
+      "architectural_safety": 5,
+      "depth_of_explanation": 5
+    }
+  },
+  {
+    "id": "speculative_decoding_rejection_sampling",
+    "title": "Mathematical Proof of Speculative Rejection Sampling",
+    "category": "INFERENCE_SERVING",
+    "difficulty": "EXPERT",
+    "prompt": "Prove that speculative decoding with modified rejection sampling (Leviathan et al.) produces token distributions identical to direct sampling from the target model p(x), and explain why naive rejection sampling causes distribution drift.",
+    "key_traps": [
+      "Assuming speculative decoding is an approximation that introduces perplexity degradation.",
+      "Failing to define the normalized positive residual distribution (p - q)+ / sum((p - q)+).",
+      "Claiming speculative decoding accelerates the prefill phase."
+    ],
+    "golden_reference": "For draft token x proposed by draft distribution q(x), acceptance probability is alpha(x) = min(1, p(x)/q(x)). If rejected, sampling a replacement from the residual distribution p_res(x) = max(0, p(x) - q(x)) / sum_y max(0, p(y) - q(y)) guarantees exact distribution invariance. The probability of emitting token x is: P(x) = q(x) * min(1, p(x)/q(x)) + (1 - sum_y min(q(y), p(y))) * p_res(x). Since q(x) * min(1, p(x)/q(x)) = min(q(x), p(x)) and the rejection probability matches the normalizer sum_y max(0, p(y) - q(y)), the terms cancel to yield P(x) == p(x). Naive rejection without residual compensation over-samples draft-preferred tokens, degrading model quality.",
+    "rubric": {
+      "mathematical_correctness": 5,
+      "hardware_efficiency": 5,
+      "architectural_safety": 5,
+      "depth_of_explanation": 5
+    }
+  }
+]
